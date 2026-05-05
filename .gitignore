@@ -1,0 +1,10 @@
+# Compiled objects and dependencies
+*.o
+*.d
+
+# Kernel and loader binaries
+kernel.bin
+loader.bin
+
+# Build directories
+build/
