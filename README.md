@@ -1,3 +1,5 @@
+> **Personal project** — Raja Noureddine. This is a personal learning repo and is not intended for public support.
+
 # 🖥️ Modified PintOS Starter Code
 
 This repository contains a **modified PintOS starter code** that can be compiled and run on **Ubuntu 22.04 / 24.04**.  
@@ -196,6 +198,3 @@ make check TESTS="tests/threads/mlfqs-load-1 tests/threads/mlfqs-load-60 tests/t
 - Verify with `pintos run`  
 - Run tests (`make check`)  
 
-## Contact
-
-Any questions? Please email: dhurba.tpt@gmail.com
