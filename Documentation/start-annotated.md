@@ -274,6 +274,58 @@ Stack writes still land in physical `0xF000` because both virtual `0x0000F000` a
 
 This is the handoff to C. `main` is `int main(void)` at `threads/init.c:77`. The protected-mode environment is fully set up: a flat GDT, paging, a clean stack, no live interrupts, and IDT setup waiting for `intr_init()` later in `main` itself.
 
+### How does `call main` know where `main` is?
+
+It doesn't — the **linker** does, after compilation. Three layers cooperate:
+
+**1. The assembler emits a placeholder.** When GAS assembles `call main` in `start.S`, the symbol `main` is undefined in this file (it lives in `init.c`). The assembler can't compute an address, so it does two things:
+
+- Emits the `call` opcode with a **zero displacement** as a placeholder.
+- Writes a **relocation entry** into `start.o` that says: *"at this byte offset, please patch in a 32-bit PC-relative reference to the symbol `main`."*
+
+(`objdump -r start.o` would show an `R_386_PC32 main` entry at that offset.)
+
+**2. The linker resolves it.** The link step (`ld -T kernel.lds.S start.o init.o thread.o …`) walks every `.o` file's symbol table and lays sections out at addresses dictated by the linker script `threads/kernel.lds.S:9-15`:
+
+```
+_start = LOADER_PHYS_BASE + LOADER_KERN_BASE;   /* = 0xC0020000 */
+.text : { *(.start) *(.text) } ...
+```
+
+The `.start` section (containing `start` from `start.S`) is placed first inside `.text`, then all the other `.text` from every object file (including `init.c`'s `main`) is concatenated after. By the end of the link, the linker knows the absolute virtual address of every symbol. In the actual built kernel:
+
+```
+c00200c0 T start          ← from start.S
+c0020225 T main           ← from init.c
+```
+
+**3. The displacement is patched in.** `call rel32` is encoded as `E8` followed by a 4-byte signed displacement, applied **relative to the next instruction**. The linker computes:
+
+```
+displacement = address_of(main) - address_of(next_instruction)
+             = 0xC0020225      - 0xC00201A5
+             = 0x00000080
+```
+
+…and writes those bytes into the placeholder. Disassembling the built kernel confirms it:
+
+```
+c00201a0:  e8 80 00 00 00       call c0020225 <main>
+c00201a5:  eb fe                jmp  c00201a5
+```
+
+`E8 80 00 00 00` literally means *"call the address that is 0x80 bytes past me."*
+
+**4. At runtime.** The CPU executing this `call` doesn't look up any symbol. It takes the current `%eip`, adds `0x80`, pushes the return address on the stack, and jumps. The "knowledge" of where `main` lives was baked into the instruction stream at link time, then loaded into RAM along with the rest of the kernel image at physical `0x20000`.
+
+| Layer | Knows about `main`? | What it does |
+|---|---|---|
+| Assembler (`as`) | No — sees an external symbol | Emits opcode + zero displacement + relocation record |
+| Linker (`ld`) | **Yes** — has all object files | Computes addresses, patches the displacement |
+| CPU at runtime | Doesn't need to | Adds the displacement to `%eip` and jumps |
+
+The same mechanism handles every cross-file function call in the kernel; `main` is unusual only in being the *first* one.
+
 ---
 
 ## Lines 187–203 — Static data
